@@ -10,6 +10,15 @@ const Tesseract = require('tesseract.js');
 const app = express();
 const port = process.env.PORT || 3001;
 
+// --- VALIDATION: Ensure critical env vars are set ---
+const requiredEnv = ['DATABASE_URL', 'AI_API_KEY'];
+const missing = requiredEnv.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error(`\n❌ CRITICAL ERROR: Missing environment variables: ${missing.join(', ')}`);
+  console.error(`👉 Please check your backend/.env file and ensure these are defined.\n`);
+  process.exit(1);
+}
+
 // Multer Setup
 const storage = multer.diskStorage({
   destination: 'uploads/',
@@ -22,8 +31,34 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
-// Database setup
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Database setup - Explicit config to prevent "role atkam" default errors
+const pool = new Pool({
+  user: process.env.DB_USER || 'postgres',
+  host: process.env.DB_HOST || 'localhost',
+  database: process.env.DB_NAME || 'ocr_marketing',
+  password: process.env.DB_PASSWORD, // Ensure this is set in .env
+  port: process.env.DB_PORT || 5432,
+});
+
+// CRITICAL: Handle errors on idle clients to prevent process crashes
+pool.on('error', (err) => {
+  console.error('\n⚠️  DATABASE POOL ERROR:', err.message);
+  // Do not exit, the pool will attempt to reconnect on next query
+});
+
+// Startup Database Verification
+const verifyConnection = async () => {
+  try {
+    const client = await pool.connect();
+    console.log('✅ DATABASE: Connection established successfully.');
+    client.release();
+  } catch (err) {
+    console.error('\n❌ DATABASE ERROR: Initial connection failed.');
+    console.error(`👉 Details: ${err.message}`);
+    console.error('👉 Tip: Ensure PostgreSQL service is running and credentials are correct.\n');
+  }
+};
+verifyConnection();
 
 // Health check and connection test
 app.get('/api/health', async (req, res) => {
@@ -70,21 +105,33 @@ const callGrok = async (messages, model = "grok-beta") => {
 
 // --- Routes: System Settings ---
 app.get('/api/settings', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM system_settings ORDER BY id DESC LIMIT 1');
-  res.json(rows[0]);
+  try {
+    const { rows } = await pool.query('SELECT * FROM system_settings ORDER BY id DESC LIMIT 1');
+    res.json(rows[0] || { provider: 'ollama' });
+  } catch (err) {
+    console.error('❌ SETTINGS GET ERROR:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/settings', async (req, res) => {
-  const { provider } = req.body;
-  const { rows } = await pool.query('INSERT INTO system_settings (provider) VALUES ($1) RETURNING *', [provider]);
-  res.json(rows[0]);
+  try {
+    const { provider } = req.body;
+    const { rows } = await pool.query('INSERT INTO system_settings (provider) VALUES ($1) RETURNING *', [provider]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('❌ SETTINGS POST ERROR:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Routes: OCR & Upload ---
 app.post('/api/upload', upload.single('image'), async (req, res) => {
   try {
+    if (!req.file) throw new Error('No file uploaded.');
     const { path: filePath } = req.file;
-    // Perform OCR
+    console.log(`📸 Processing upload: ${filePath}`);
+    
     const { data: { text } } = await Tesseract.recognize(filePath, 'eng');
     const result = await pool.query(
       'INSERT INTO images (file_path, ocr_text) VALUES ($1, $2) RETURNING *',
@@ -92,29 +139,45 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('❌ UPLOAD/OCR ERROR:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // --- Routes: Knowledge Base ---
 app.get('/api/knowledge', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM knowledge_base ORDER BY id DESC');
-  res.json(rows);
+  try {
+    const { rows } = await pool.query('SELECT * FROM knowledge_base ORDER BY id DESC');
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ KNOWLEDGE GET ERROR:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/knowledge', async (req, res) => {
-  const { title, content } = req.body;
-  const { rows } = await pool.query(
-    'INSERT INTO knowledge_base (title, content) VALUES ($1, $2) RETURNING *',
-    [title, content]
-  );
-  res.json(rows[0]);
+  try {
+    const { title, content } = req.body;
+    const { rows } = await pool.query(
+      'INSERT INTO knowledge_base (title, content) VALUES ($1, $2) RETURNING *',
+      [title, content]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('❌ KNOWLEDGE POST ERROR:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Routes: Agent Brain (Persona Switching) ---
 app.get('/api/agent', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM agent_identity ORDER BY name ASC');
-  res.json(rows);
+  try {
+    const { rows } = await pool.query('SELECT * FROM agent_identity ORDER BY name ASC');
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ AGENT GET ERROR:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/agent/select', async (req, res) => {
@@ -197,4 +260,25 @@ app.post('/api/schedule', async (req, res) => {
   }
 });
 
-app.listen(port, () => console.log(`X-Marketing Engine running on port ${port}`));
+app.listen(port, () => {
+  console.log(`🚀 X-Marketing Engine live at http://localhost:${port}`);
+  console.log('📡 Event loop active. Press Ctrl+C to stop.');
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ STARTUP ERROR: Port ${port} is already in use.`);
+    console.error(`👉 Tip: Kill any existing Node processes or change the PORT in .env\n`);
+  } else {
+    console.error(`\n❌ SERVER ERROR: ${err.message}\n`);
+  }
+  process.exit(1);
+});
+
+// --- GLOBAL STABILITY HANDLERS ---
+process.on('uncaughtException', (err) => {
+  console.error('\n💥 UNCAUGHT EXCEPTION:', err.message);
+  console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('\n⚠️  UNHANDLED REJECTION:', reason);
+});

@@ -5,8 +5,8 @@ The system follows a three-tier architecture: **User (React UI)** -> **Orchestra
 
 ## 2. Core Logic: The "SAM" (Smart Agent Manager) Pattern
 The **SAM** logic is implemented through:
-1. **Agent Brain (Modelfile)**: Stored in the `agent_identity` table, this provides the system prompt, defining the agent's behavior and personality.
-2. **Long-Term Memory (Knowledge Base)**: Stored in the `brand_knowledge` table, providing persistent brand facts.
+1. **Agent Brain (Modelfile)**: Stored in the `agent_identity` table and mirrored in the `Cloud.Modelfile` template. This defines the agent's behavior, parameters, and system instructions.
+2. **Long-Term Memory (Knowledge Base)**: Stored in the `knowledge_base` table, providing persistent brand facts.
 3. **Current Task Context (Vision Input)**: Short-term context provided through image analysis.
 
 ## 3. Image Analysis Flow

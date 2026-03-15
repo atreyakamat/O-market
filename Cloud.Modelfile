@@ -1,7 +1,7 @@
 # Cloud Ollama Modelfile for O-market
-# Base Model: qwen3-vl:4b (Vision-Language)
+# Base Model: qwen3.5:cloud (Vision-Language Optimized)
 
-FROM qwen3-vl:4b
+FROM qwen3.5:cloud
 
 # System Prompt: Defines the Agent's Core Identity
 SYSTEM """

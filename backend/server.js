@@ -36,7 +36,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 // AI Helper
-const callAI = async (messages, model = "qwen3-vl:4b") => {
+const callAI = async (messages, model = "qwen3.5:cloud") => {
   try {
     const response = await axios.post(`${process.env.AI_BASE_URL}/chat/completions`, {
       model, messages,

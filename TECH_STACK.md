@@ -1,7 +1,7 @@
 # Tech Stack - OCR Marketing AI Agent
 
 ## 1. AI & Machine Learning
-- **Model**: `qwen3-vl:4b` (Vision-Language).
+- **Model**: `qwen3.5:cloud` (Vision-Language).
 - **Inference**: Ollama Cloud / OpenAI-compatible API.
 - **Agent Logic**: Modular system prompting (Modelfile style).
 

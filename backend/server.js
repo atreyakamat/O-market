@@ -35,7 +35,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// AI Helper
+// AI Helper (Ollama)
 const callAI = async (messages, model = "qwen3.5:cloud") => {
   try {
     const response = await axios.post(`${process.env.AI_BASE_URL}/chat/completions`, {
@@ -45,10 +45,40 @@ const callAI = async (messages, model = "qwen3.5:cloud") => {
     });
     return response.data.choices[0].message.content;
   } catch (err) {
-    console.error('AI API Error:', err.message);
-    throw new Error('AI Engine failed.');
+    console.error('Ollama API Error:', err.message);
+    throw new Error('Ollama Engine failed.');
   }
 };
+
+// Grok Helper (xAI)
+const callGrok = async (messages, model = "grok-beta") => {
+  try {
+    const response = await axios.post(`${process.env.GROK_BASE_URL || 'https://api.x.ai/v1'}/chat/completions`, {
+      model, messages,
+    }, {
+      headers: { 
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`, 
+        'Content-Type': 'application/json' 
+      }
+    });
+    return response.data.choices[0].message.content;
+  } catch (err) {
+    console.error('Grok API Error:', err.message);
+    throw new Error('Grok Engine failed.');
+  }
+};
+
+// --- Routes: System Settings ---
+app.get('/api/settings', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM system_settings ORDER BY id DESC LIMIT 1');
+  res.json(rows[0]);
+});
+
+app.post('/api/settings', async (req, res) => {
+  const { provider } = req.body;
+  const { rows } = await pool.query('INSERT INTO system_settings (provider) VALUES ($1) RETURNING *', [provider]);
+  res.json(rows[0]);
+});
 
 // --- Routes: OCR & Upload ---
 app.post('/api/upload', upload.single('image'), async (req, res) => {
@@ -107,26 +137,30 @@ app.post('/api/agent', async (req, res) => {
   res.json(rows[0]);
 });
 
-// --- Routes: Drafting (Using Active Persona) ---
+// --- Routes: Drafting (Using Active Persona & Provider) ---
 app.post('/api/generate-draft', async (req, res) => {
   const { imageId } = req.body;
   try {
     const { rows: img } = await pool.query('SELECT * FROM images WHERE id = $1', [imageId]);
     const { rows: kb } = await pool.query('SELECT * FROM knowledge_base');
     const { rows: agent } = await pool.query('SELECT * FROM agent_identity WHERE is_active = TRUE LIMIT 1');
+    const { rows: settings } = await pool.query('SELECT provider FROM system_settings ORDER BY id DESC LIMIT 1');
 
     const brandFacts = kb.map(k => `${k.title}: ${k.content}`).join('\n');
     const ocrText = img[0]?.ocr_text || "No text detected.";
     const systemPrompt = agent[0]?.system_prompt || "You are a professional marketer.";
-    const personaName = agent[0]?.name || "Default";
+    const provider = settings[0]?.provider || 'ollama';
 
     const messages = [
       { role: "system", content: systemPrompt },
       { role: "user", content: `OCR Text from Image: ${ocrText}\n\nBrand Context:\n${brandFacts}\n\nTask: Create 3 LinkedIn drafts for this image.` }
     ];
 
-    const draft = await callAI(messages);
-    res.json({ draft });
+    const draft = provider === 'grok' 
+      ? await callGrok(messages) 
+      : await callAI(messages);
+
+    res.json({ draft, provider });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

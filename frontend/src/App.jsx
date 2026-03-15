@@ -12,6 +12,7 @@ function App() {
   const [drafts, setDrafts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
+  const [settings, setSettings] = useState({ provider: 'ollama' });
   
   // KB Form
   const [kbTitle, setKbTitle] = useState('');
@@ -21,6 +22,7 @@ function App() {
     fetchKnowledge();
     fetchAgent();
     fetchHistory();
+    fetchSettings();
   }, []);
 
   const fetchKnowledge = async () => {
@@ -35,8 +37,18 @@ function App() {
     setActiveAgent(active || res.data[0]);
   };
 
+  const fetchSettings = async () => {
+    const res = await axios.get(`${API_BASE}/settings`);
+    if (res.data) setSettings(res.data);
+  };
+
+  const updateProvider = async (provider) => {
+    const res = await axios.post(`${API_BASE}/settings`, { provider });
+    setSettings(res.data);
+  };
+
   const selectAgent = async (id) => {
-    const res = await axios.post(`${API_BASE}/agent/select`, { id });
+    await axios.post(`${API_BASE}/agent/select`, { id });
     fetchAgent();
   };
 
@@ -65,7 +77,7 @@ function App() {
       const res = await axios.post(`${API_BASE}/generate-draft`, { imageId: uploadedImg.id });
       setDrafts(res.data.draft);
     } catch (err) {
-      alert('Drafting failed.');
+      alert('Drafting failed. Check your API settings.');
     } finally {
       setLoading(false);
     }
@@ -75,7 +87,7 @@ function App() {
     await axios.post(`${API_BASE}/schedule`, {
       imageId: uploadedImg.id,
       content: drafts,
-      scheduledAt: new Date(Date.now() + 86400000).toISOString() // 24h later
+      scheduledAt: new Date(Date.now() + 86400000).toISOString()
     });
     alert('Scheduled! Image marked as USED.');
     setUploadedImg(prev => ({ ...prev, is_used: true }));
@@ -86,11 +98,6 @@ function App() {
     await axios.post(`${API_BASE}/knowledge`, { title: kbTitle, content: kbContent });
     setKbTitle(''); setKbContent('');
     fetchKnowledge();
-  };
-
-  const saveAgent = async () => {
-    await axios.post(`${API_BASE}/agent`, { system_prompt: agentPrompt });
-    alert('Agent Persona Updated!');
   };
 
   return (
@@ -108,6 +115,9 @@ function App() {
         </div>
         <div className={`nav-item ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
           <span>🕒</span> History
+        </div>
+        <div className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+          <span>⚙️</span> Settings
         </div>
       </div>
 
@@ -179,7 +189,6 @@ function App() {
           <div className="agent-view">
             <div className="card">
               <h2>Select Agent Persona</h2>
-              <p style={{ color: 'var(--text-dim)' }}>Switch between platform-optimized AI brains.</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginTop: '20px' }}>
                 {agentProfiles.map((a) => (
                   <div 
@@ -195,9 +204,7 @@ function App() {
                     onClick={() => selectAgent(a.id)}
                   >
                     <h3 style={{ margin: '0 0 10px 0', color: a.is_active ? 'var(--x-blue)' : '#fff' }}>{a.name}</h3>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', margin: 0, height: '40px', overflow: 'hidden' }}>
-                      {a.system_prompt.substring(0, 80)}...
-                    </p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', margin: 0, height: '40px', overflow: 'hidden' }}>{a.system_prompt.substring(0, 80)}...</p>
                     {a.is_active && <div className="status-badge status-ready" style={{ marginTop: '10px' }}>ACTIVE</div>}
                   </div>
                 ))}
@@ -218,22 +225,54 @@ function App() {
               </div>
             )}
           </div>
+        ) : activeTab === 'settings' ? (
+          <div className="settings-view">
+            <div className="card">
+              <h2>System Settings</h2>
+              <p style={{ color: 'var(--text-dim)' }}>Select the AI Engine to power your content generation.</p>
+              <div style={{ display: 'flex', gap: '20px', marginTop: '30px' }}>
+                <div 
+                  className="card" 
+                  style={{ 
+                    flex: 1, cursor: 'pointer',
+                    borderColor: settings.provider === 'ollama' ? 'var(--x-blue)' : '#2f3336',
+                    background: settings.provider === 'ollama' ? 'rgba(29, 155, 240, 0.05)' : 'transparent'
+                  }}
+                  onClick={() => updateProvider('ollama')}
+                >
+                  <h3>Ollama Cloud</h3>
+                  <p style={{ fontSize: '0.85rem' }}>Local & Cloud Inference (Qwen 3.5)</p>
+                </div>
+                <div 
+                  className="card" 
+                  style={{ 
+                    flex: 1, cursor: 'pointer',
+                    borderColor: settings.provider === 'grok' ? 'var(--x-blue)' : '#2f3336',
+                    background: settings.provider === 'grok' ? 'rgba(29, 155, 240, 0.05)' : 'transparent'
+                  }}
+                  onClick={() => updateProvider('grok')}
+                >
+                  <h3>xAI Grok</h3>
+                  <p style={{ fontSize: '0.85rem' }}>High-Performance Cloud AI</p>
+                </div>
+              </div>
+              {settings.provider === 'grok' && (
+                <div className="status-badge status-ready" style={{ marginTop: '20px' }}>
+                  Grok Engine Active: Ensure GROK_API_KEY is set in .env
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="history-view">
             <div className="card">
               <h2>Scheduled Posts History</h2>
-              <p style={{ color: 'var(--text-dim)' }}>A log of all LinkedIn drafts scheduled using your brand assets.</p>
-              {history.length === 0 && <p>No scheduled posts yet.</p>}
               {history.map((h) => (
                 <div key={h.id} className="kb-item" style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
                   <img src={`http://localhost:3001/${h.file_path}`} style={{ width: '80px', borderRadius: '4px' }} />
                   <div style={{ flex: 1 }}>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--x-blue)' }}>
-                      Scheduled For: {new Date(h.scheduled_at).toLocaleDateString()}
-                    </p>
-                    <div className="draft-card" style={{ padding: '12px', marginTop: '8px', fontSize: '0.9rem' }}>
-                      {h.content}
-                    </div>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--x-blue)' }}>Scheduled For: {new Date(h.scheduled_at).toLocaleDateString()}</p>
+                    <div className="draft-card" style={{ padding: '12px', marginTop: '8px', fontSize: '0.9rem' }}>{h.content}</div>
                   </div>
                 </div>
               ))}

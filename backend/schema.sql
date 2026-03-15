@@ -42,3 +42,13 @@ CREATE TABLE IF NOT EXISTS scheduled_posts (
     is_posted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- System Settings (Provider Selection)
+CREATE TABLE IF NOT EXISTS system_settings (
+    id SERIAL PRIMARY KEY,
+    provider TEXT NOT NULL DEFAULT 'ollama', -- 'ollama' or 'grok'
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed Default Setting
+INSERT INTO system_settings (provider) VALUES ('ollama') ON CONFLICT DO NOTHING;
